@@ -1,0 +1,21 @@
+[project]
+name = "pacman-game"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "pygame>=2.5.2"
+]
+
+[project.scripts]
+game = "pacman_game.game:main"
+map-editor = "pacman_game.map_editor:main"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+
+[tool.setuptools.packages.find]
+where = ["src"]
