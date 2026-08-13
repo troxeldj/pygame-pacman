@@ -1,5 +1,5 @@
 # Pygame Pacman Game
-
+Local Pygame Python game with a map editor.
 
 ## Install Deps
 
