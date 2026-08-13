@@ -60,6 +60,9 @@ class GameMap:
                     case ".":
                         row.append(Tile.DOT)
 
+                    case "O":
+                        row.append(Tile.POWER_PELLET)
+
                     case " ":
                         row.append(Tile.EMPTY)
 
@@ -87,7 +90,12 @@ class GameMap:
         return cls(tiles=tiles, pacman_start=pacman_start, ghost_spawns=ghost_spawns)
 
     def to_lines(self) -> list[str]:
-        char_for_tile = {Tile.WALL: "#", Tile.DOT: ".", Tile.EMPTY: " "}
+        char_for_tile = {
+            Tile.WALL: "#",
+            Tile.DOT: ".",
+            Tile.POWER_PELLET: "O",
+            Tile.EMPTY: " ",
+        }
         lines = ["".join(char_for_tile[tile] for tile in row) for row in self.tiles]
 
         px, py = self.pacman_start
@@ -106,15 +114,18 @@ class GameMap:
             return False
         return self.tiles[y][x] != Tile.WALL
 
-    def eat_dot(self, x: int, y: int) -> bool:
-        if self.tiles[y][x] == Tile.DOT:
+    def eat_tile(self, x: int, y: int) -> Tile | None:
+        tile = self.tiles[y][x]
+        if tile in (Tile.DOT, Tile.POWER_PELLET):
             self.tiles[y][x] = Tile.EMPTY
-            return True
-        return False
+            return tile
+        return None
 
     @property
     def remaining_dots(self) -> int:
-        return sum(row.count(Tile.DOT) for row in self.tiles)
+        return sum(
+            row.count(Tile.DOT) + row.count(Tile.POWER_PELLET) for row in self.tiles
+        )
 
     def get_layout(self, screen: pygame.Surface) -> MapLayout:
         width, height = screen.get_size()
@@ -164,4 +175,11 @@ class GameMap:
                 (255, 255, 255),
                 rect.center,
                 max(2, tile_size // 10),
+            )
+        elif tile == Tile.POWER_PELLET:
+            pygame.draw.circle(
+                screen,
+                (255, 255, 255),
+                rect.center,
+                max(4, int(tile_size // 10 * 1.8)),
             )

@@ -16,6 +16,7 @@ _IMAGE_PATHS: dict[str, Path] = {
     "inky": _ASSETS_DIR / "inky.png",
     "clyde": _ASSETS_DIR / "clyde.png",
 }
+_FRIGHTENED_IMAGE_PATH = _ASSETS_DIR / "blue_ghost.png"
 
 
 class Ghost(Entity):
@@ -25,14 +26,29 @@ class Ghost(Entity):
         color: str = "blinky",
         speed: float = 3.5,
     ) -> None:
+        self.color = color
         image = pygame.image.load(_IMAGE_PATHS[color])
-        images = {orientation: [image] for orientation in Orientation}
+        frightened_image = pygame.image.load(_FRIGHTENED_IMAGE_PATH)
+        self._normal_images = {orientation: [image] for orientation in Orientation}
+        self._frightened_images = {
+            orientation: [frightened_image] for orientation in Orientation
+        }
+        self._frightened = False
         super().__init__(
             position=position,
             orientation=Orientation.LEFT,
-            images=images,
+            images=self._normal_images,
             speed=speed,
         )
+
+    @property
+    def frightened(self) -> bool:
+        return self._frightened
+
+    def set_frightened(self, active: bool) -> None:
+        self._frightened = active
+        self.images = self._frightened_images if active else self._normal_images
+        self._scaled_tile_size = None
 
     def _next_orientation(self, game_map: GameMap) -> Orientation:
         walkable = [

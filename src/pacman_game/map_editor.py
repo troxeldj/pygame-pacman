@@ -1,4 +1,6 @@
 import argparse
+import subprocess
+import sys
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -13,6 +15,7 @@ _ASSETS_DIR = Path(__file__).parent.parent.parent / "assets"
 _DEFAULT_OUTPUT = _ASSETS_DIR / "levels" / "custom_map.txt"
 
 _TOOLBAR_HEIGHT = 64
+_TOOLBAR_MARGIN = 12
 _SWATCH_SIZE = 48
 _SWATCH_SPACING = 12
 _STATUS_HEIGHT = 28
@@ -75,6 +78,9 @@ class MapEditor:
 
         self._label_font = pygame.font.SysFont(None, 22)
         self._status_font = pygame.font.SysFont(None, 22)
+        self._coord_font = pygame.font.SysFont(None, 18)
+
+        self._hover_cell: tuple[int, int] | None = None
 
         self._pacman_preview = pygame.image.load(
             _ASSETS_DIR / "pacman-right" / "1.png"
@@ -103,7 +109,9 @@ class MapEditor:
 
     def _grid_layout(self, surface: pygame.Surface) -> MapLayout:
         width, height = surface.get_size()
-        grid_area_height = max(1, height - _TOOLBAR_HEIGHT - _STATUS_HEIGHT)
+        grid_area_height = max(
+            1, height - _TOOLBAR_HEIGHT - _TOOLBAR_MARGIN - _STATUS_HEIGHT
+        )
 
         tile_size = max(
             1, min(width // self.grid_width, grid_area_height // self.grid_height)
@@ -112,7 +120,9 @@ class MapEditor:
         map_height = self.grid_height * tile_size
 
         offset_x = (width - map_width) // 2
-        offset_y = _TOOLBAR_HEIGHT + (grid_area_height - map_height) // 2
+        offset_y = (
+            _TOOLBAR_HEIGHT + _TOOLBAR_MARGIN + (grid_area_height - map_height) // 2
+        )
 
         return MapLayout(tile_size=tile_size, offset_x=offset_x, offset_y=offset_y)
 
@@ -157,6 +167,9 @@ class MapEditor:
         if event.type == pygame.KEYDOWN and event.key == pygame.K_e:
             self.export()
 
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_i:
+            self.import_map()
+
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             for swatch in self._swatches:
                 if swatch.contains(event.pos):
@@ -174,10 +187,11 @@ class MapEditor:
             self._painting = False
             self._last_painted = None
 
-        elif event.type == pygame.MOUSEMOTION and self._painting:
+        elif event.type == pygame.MOUSEMOTION:
             layout = self._grid_layout(surface)
             cell = self._cell_at(event.pos, layout)
-            if cell is not None and cell != self._last_painted:
+            self._hover_cell = cell
+            if self._painting and cell is not None and cell != self._last_painted:
                 self._apply_tool(cell)
                 self._last_painted = cell
 
@@ -235,6 +249,53 @@ class MapEditor:
             )
         else:
             self.status_message = f"Saved to {self.output_path}"
+
+    def import_map(self) -> None:
+        # Run the tkinter file dialog in a separate process: on macOS, tkinter's
+        # Tcl/Tk 9 Cocoa integration crashes the whole interpreter if it runs
+        # inside a process where pygame/SDL has already initialized NSApplication.
+        dialog_script = (
+            "import tkinter\n"
+            "from tkinter import filedialog\n"
+            "root = tkinter.Tk()\n"
+            "root.withdraw()\n"
+            "path = filedialog.askopenfilename("
+            "initialdir='.', filetypes=[('Text files', '*.txt'), ('All files', '*.*')])\n"
+            "root.destroy()\n"
+            "print(path)\n"
+        )
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", dialog_script],
+                cwd=Path.cwd(),
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as exc:
+            self.status_message = f"Failed to open file dialog: {exc}"
+            return
+
+        selected = result.stdout.strip()
+
+        if not selected:
+            self.status_message = "Import cancelled"
+            return
+
+        path = Path(selected)
+        try:
+            game_map = GameMap.load(path)
+        except (ValueError, OSError) as exc:
+            self.status_message = f"Failed to import {path.name}: {exc}"
+            return
+
+        self.grid_width = game_map.width
+        self.grid_height = game_map.height
+        self.tiles = game_map.tiles
+        self.pacman_pos = game_map.pacman_start
+        self.ghost_positions = list(game_map.ghost_spawns)
+        self.output_path = path
+        self.status_message = f"Imported {path.name}"
 
     # -- drawing ------------------------------------------------------------
 
@@ -311,6 +372,14 @@ class MapEditor:
         text = self._status_font.render(self.status_message, True, _STATUS_COLOR)
         surface.blit(text, (8, bar_rect.top + 4))
 
+        if self._hover_cell is not None:
+            x, y = self._hover_cell
+            coord_text = self._coord_font.render(f"({x}, {y})", True, _STATUS_COLOR)
+            surface.blit(
+                coord_text,
+                coord_text.get_rect(right=width - 8, centery=bar_rect.centery),
+            )
+
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Pacman map editor")
@@ -318,7 +387,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--height", type=int, default=15, help="grid height (new map)")
     parser.add_argument("--load", type=Path, default=None, help="existing level to edit")
     parser.add_argument(
-        "--output", type=Path, default=_DEFAULT_OUTPUT, help="export path"
+        "--output", type=Path, default=None, help="export path"
     )
     return parser.parse_args()
 
@@ -331,9 +400,11 @@ def main() -> None:
     pygame.display.set_caption("Pacman Map Editor")
 
     if args.load is not None:
-        editor = MapEditor.from_existing_map(GameMap.load(args.load), args.output)
+        output_path = args.output if args.output is not None else args.load
+        editor = MapEditor.from_existing_map(GameMap.load(args.load), output_path)
     else:
-        editor = MapEditor(args.width, args.height, args.output)
+        output_path = args.output if args.output is not None else _DEFAULT_OUTPUT
+        editor = MapEditor(args.width, args.height, output_path)
 
     clock = pygame.time.Clock()
     running = True
