@@ -20,6 +20,7 @@ _READY_COLOR = (255, 255, 0)
 _PAUSE_HINT_COLOR = (255, 255, 255)
 _POWER_DURATION = 8.0
 _GHOST_EAT_SCORE = 200
+_GHOST_RESPAWN_DELAY = 2.0
 
 
 class GameScreen(Screen):
@@ -66,6 +67,7 @@ class GameScreen(Screen):
         ghost.position = Position(x=spawn_x, y=spawn_y)
         ghost.orientation = Orientation.LEFT
         ghost.set_frightened(False)
+        ghost.clear_respawn_delay()
 
     def handle_event(self, event: pygame.event.Event) -> GameState | None:
         if event.type == pygame.KEYDOWN:
@@ -96,6 +98,15 @@ class GameScreen(Screen):
             self._ready_timer = max(0.0, self._ready_timer - dt)
             return None
 
+        for ghost in self._ghosts:
+            if ghost.pending_respawn:
+                ghost.respawn_timer -= dt
+                if ghost.respawn_timer <= 0:
+                    self._respawn_ghost(ghost)
+
+        for ghost in self._ghosts:
+            ghost.update_target(self._pacman, self._game_map)
+
         for entity in self._entities:
             entity.update(dt, self._game_map)
 
@@ -117,13 +128,17 @@ class GameScreen(Screen):
                 ghost.set_frightened(True)
 
         for ghost in self._ghosts:
+            if ghost.pending_respawn:
+                continue
+
             if (ghost.position.x, ghost.position.y) == (
                 self._pacman.position.x,
                 self._pacman.position.y,
             ):
                 if ghost.frightened:
                     self.score += _GHOST_EAT_SCORE
-                    self._respawn_ghost(ghost)
+                    ghost.set_frightened(False)
+                    ghost.start_respawn_delay(_GHOST_RESPAWN_DELAY)
                     continue
 
                 self._lives -= 1
